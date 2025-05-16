@@ -1,5 +1,4 @@
 # My-OS – Development Progress Overview
-====================================
 
 This document is a quick, high-level overview of where the project
 stands right now so that new or returning contributors can orient
