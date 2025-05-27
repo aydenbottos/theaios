@@ -9,9 +9,10 @@
 #include "serial.h"
 #include "syscall.h"
 #include "kheap.h"
+#include "gui.h"
 
-#define MAX_LINE     128
-#define MAX_HISTORY   10
+#define MAX_LINE    128
+#define MAX_HISTORY  10
 
 static char linebuf[MAX_LINE];
 static uint32_t idx;
@@ -24,7 +25,7 @@ static void prompt(void);
 static void execute(void);
 static void ls_callback(const char *name, uint32_t size);
 
-#define USER_STACK_SIZE 0x1000   // 4 KiB per user task
+#define USER_STACK_SIZE 0x1000   // 4 KiB per user task
 #define MAX_FILE_SIZE 16384   // adjust as you like
 
 // called by keyboard.c for each ASCII char
@@ -81,7 +82,7 @@ static void prompt(void) {
     itoa(s, buf, 10);
     puts("[");
     puts(buf);
-    puts("s] myos> ");
+    puts(s"] myos> ");
 }
 
 static void execute(void) {
@@ -98,7 +99,8 @@ static void execute(void) {
     }
     else if (strcmp(linebuf, "help") == 0) {
         puts("Built-ins: echo, help, clear, reboot, halt, uptime, history, !n,\n");
-        puts("           ls, cat, write, append, rm, rename, cp, df, ps, kill, cls, rand, malloc\n");
+        puts("           ls, cat, write, append, rm, rename, cp, df, ps, kill, cls, rand, malloc,\n");
+        puts("           gui, sleep, free, run\n");
     }
     else if (strcmp(linebuf, "clear") == 0) {
         clear_screen();
@@ -108,6 +110,13 @@ static void execute(void) {
     }
     else if (strcmp(linebuf, "reboot") == 0) {
         outb(0x64, 0xFE);
+    }
+    else if (strcmp(linebuf, "gui") == 0) {
+        puts("Starting GUI mode...\n");
+        gui_init();
+        gui_main_loop();
+        // GUI has exited, back to shell
+        puts("Returned to text mode\n");
     }
     else if (strncmp(linebuf, "sleep ", 6) == 0) {
         int secs = atoi(&linebuf[6]);
@@ -129,7 +138,7 @@ static void execute(void) {
     else if (strncmp(linebuf, "run ", 4) == 0) {
         const char *fname = &linebuf[4];
         // read entire file into heap
-        uint8_t *img = kmalloc(64 * 1024);       // reserve 64 KiB
+        uint8_t *img = kmalloc(64 * 1024);       // reserve 64 KiB
         int sz = fs_read(fname, img, 64*1024);
         if (sz < 0) {
             puts("File not found\n"); return;
