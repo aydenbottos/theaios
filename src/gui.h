@@ -1,6 +1,7 @@
 #ifndef GUI_H
 #define GUI_H
 
+#include <stdbool.h>
 #include "util.h"
 
 // GUI mode functions
