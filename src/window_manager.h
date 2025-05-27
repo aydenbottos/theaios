@@ -1,6 +1,7 @@
 #ifndef WINDOW_MANAGER_H
 #define WINDOW_MANAGER_H
 
+#include <stdbool.h>
 #include "util.h"
 
 // Window flags
