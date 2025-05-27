@@ -1,6 +1,7 @@
 #ifndef MOUSE_H
 #define MOUSE_H
 
+#include <stdbool.h>
 #include "util.h"
 
 // Mouse state structure
