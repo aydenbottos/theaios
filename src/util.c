@@ -147,3 +147,33 @@ uint32_t rand32(void) {
     rand_seed = rand_seed * 1103515245 + 12345;
     return rand_seed >> 1; /* 31-bit */
 }
+
+// Additional string functions needed by GUI
+char *strcat(char *dest, const char *src) {
+    char *d = dest;
+    while (*d) d++;
+    while ((*d++ = *src++));
+    return dest;
+}
+
+char *strrchr(const char *s, int c) {
+    const char *last = NULL;
+    while (*s) {
+        if (*s == c) last = s;
+        s++;
+    }
+    return (char*)last;
+}
+
+void utohex(uint32_t val, char *buf) {
+    char tmp[9];
+    int i = 0;
+    do {
+        tmp[i++] = "0123456789ABCDEF"[val & 0xF];
+        val >>= 4;
+    } while (val && i < 8);
+    while (i < 8) tmp[i++] = '0';
+    int j = 0;
+    while (i > 0) buf[j++] = tmp[--i];
+    buf[j] = '\0';
+}
