@@ -1,3 +1,5 @@
+#include <stddef.h>
+#include <stdbool.h>
 #include "desktop.h"
 #include "vga_graphics.h"
 #include "mouse.h"
@@ -71,6 +73,15 @@ static const uint8_t exe_icon[16][16] = {
     {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}
 };
 
+// Simple strncpy implementation for freestanding environment
+static void simple_strncpy(char* dest, const char* src, int n) {
+    int i;
+    for (i = 0; i < n - 1 && src[i] != '\0'; i++) {
+        dest[i] = src[i];
+    }
+    dest[i] = '\0';
+}
+
 // Initialize desktop
 void desktop_init(void) {
     for (int i = 0; i < MAX_DESKTOP_ICONS; i++) {
@@ -98,11 +109,9 @@ void desktop_add_icon(const char* label, icon_type_t type, const char* path) {
     icon->x = 10 + col * ICON_SPACING;
     icon->y = 10 + row * ICON_SPACING;
     
-    strncpy(icon->label, label, 31);
-    icon->label[31] = '\0';
+    simple_strncpy(icon->label, label, 32);
     icon->type = type;
-    strncpy(icon->path, path, 63);
-    icon->path[63] = '\0';
+    simple_strncpy(icon->path, path, 64);
     icon->selected = false;
     
     icons[icon_count++] = icon;
@@ -179,8 +188,6 @@ void desktop_draw(void) {
 void desktop_handle_mouse(void) {
     if (!mouse_left_clicked()) return;
     
-    mouse_state_t* mouse = mouse_get_state();
-    
     // Check icon clicks
     for (int i = 0; i < icon_count; i++) {
         desktop_icon_t* icon = icons[i];
@@ -237,37 +244,53 @@ void desktop_open_icon(desktop_icon_t* icon) {
     }
 }
 
+// Static counter for file listing
+static int file_icon_count = 0;
+
+// Callback for fs_ls to add file icons
+static void add_file_icon_callback(const char* name, uint32_t size) {
+    // Skip system files
+    if (strcmp(name, ".") == 0 || strcmp(name, "..") == 0) {
+        return;
+    }
+    
+    // Skip if already at max icons
+    if (icon_count >= MAX_DESKTOP_ICONS) {
+        return;
+    }
+    
+    // Skip files we already have icons for
+    for (int i = 0; i < icon_count; i++) {
+        if (icons[i] && strcmp(icons[i]->label, name) == 0) {
+            return;
+        }
+    }
+    
+    // Determine icon type based on extension
+    icon_type_t type = ICON_TYPE_FILE;
+    int len = strlen(name);
+    if (len > 4) {
+        if (strcmp(&name[len-4], ".TXT") == 0) {
+            type = ICON_TYPE_TEXT;
+        } else if (strcmp(&name[len-4], ".ELF") == 0) {
+            type = ICON_TYPE_EXECUTABLE;
+        }
+    }
+    
+    desktop_add_icon(name, type, name);
+}
+
 // Refresh desktop icons from filesystem
 void desktop_refresh_icons(void) {
     // Clear existing icons (except system ones)
     int system_icons = 2; // Files and Editor
     while (icon_count > system_icons) {
-        // kfree(icons[--icon_count]); // Would use if kfree existed
+        // Would use kfree if it existed
         icon_count--;
+        icons[icon_count] = NULL;
     }
     
-    // Read files from root directory and add icons
-    fat_directory_t dir;
-    if (fat_read_directory("/", &dir) == 0) {
-        for (int i = 0; i < dir.count && icon_count < MAX_DESKTOP_ICONS; i++) {
-            // Skip system files and directories
-            if (strcmp(dir.entries[i].filename, ".") == 0 ||
-                strcmp(dir.entries[i].filename, "..") == 0) {
-                continue;
-            }
-            
-            // Determine icon type based on extension
-            icon_type_t type = ICON_TYPE_FILE;
-            int len = strlen(dir.entries[i].filename);
-            if (len > 4) {
-                if (strcmp(&dir.entries[i].filename[len-4], ".TXT") == 0) {
-                    type = ICON_TYPE_TEXT;
-                } else if (strcmp(&dir.entries[i].filename[len-4], ".ELF") == 0) {
-                    type = ICON_TYPE_EXECUTABLE;
-                }
-            }
-            
-            desktop_add_icon(dir.entries[i].filename, type, dir.entries[i].filename);
-        }
-    }
+    // Use fs_ls with callback to add file icons
+    file_icon_count = 0;
+    fs_ls(add_file_icon_callback);
 }
