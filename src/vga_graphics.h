@@ -39,4 +39,8 @@ void vga_draw_string(int x, int y, const char* str, uint8_t fg_color, uint8_t bg
 void vga_swap_buffers(void);
 void vga_return_to_text_mode(void);
 
+// Direct VGA buffer access (for cursor drawing)
+void vga_set_pixel_direct(int x, int y, uint8_t color);
+uint8_t vga_get_pixel_direct(int x, int y);
+
 #endif // VGA_GRAPHICS_H
