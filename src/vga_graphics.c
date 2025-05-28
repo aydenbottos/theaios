@@ -47,7 +47,7 @@ static void vga_write_regs(const uint8_t *regs) {
 
     /* 6) Attribute controller */
     for (uint8_t i = 0; i < 21; i++) {
-        (void)inb(0x3DA);           /* reset flip-flop */
+        (void)inb(0x3DA);            /* reset flip-flop */
         outb(0x3C0, i);
         outb(0x3C0, *regs++);
     }
@@ -106,9 +106,9 @@ static const uint8_t font8x8[][8] = {
 // Initialize VGA graphics mode
 void vga_init_graphics(void) {
     /*
-     * We used to call the BIOS via “int 0x10” to switch to video
+     * We used to call the BIOS via "int 0x10" to switch to video
      * mode 13h.  In protected mode the BIOS is long gone and vector
-     * 0x10 is reserved for the x87-FPU exception (#MF) – the call
+     * 0x10 is reserved for the x87-FPU exception (#MF) — the call
      * therefore crashed the kernel.  We now program the VGA hardware
      * directly with the canonical register set for 320×200 256-colour
      * chain-4 graphics (mode 13h).
@@ -170,17 +170,32 @@ void vga_return_to_text_mode(void) {
     vga_write_regs(mode03_regs);
 }
 
-// Set a pixel
+// Set a pixel (to back buffer)
 void vga_set_pixel(int x, int y, uint8_t color) {
     if (x >= 0 && x < VGA_WIDTH && y >= 0 && y < VGA_HEIGHT) {
         back_buffer[y * VGA_WIDTH + x] = color;
     }
 }
 
-// Get a pixel color
+// Get a pixel color (from back buffer)
 uint8_t vga_get_pixel(int x, int y) {
     if (x >= 0 && x < VGA_WIDTH && y >= 0 && y < VGA_HEIGHT) {
         return back_buffer[y * VGA_WIDTH + x];
+    }
+    return 0;
+}
+
+// Set a pixel directly to VGA buffer (for cursor)
+void vga_set_pixel_direct(int x, int y, uint8_t color) {
+    if (x >= 0 && x < VGA_WIDTH && y >= 0 && y < VGA_HEIGHT) {
+        vga_buffer[y * VGA_WIDTH + x] = color;
+    }
+}
+
+// Get a pixel color directly from VGA buffer (for cursor)
+uint8_t vga_get_pixel_direct(int x, int y) {
+    if (x >= 0 && x < VGA_WIDTH && y >= 0 && y < VGA_HEIGHT) {
+        return vga_buffer[y * VGA_WIDTH + x];
     }
     return 0;
 }
