@@ -18,6 +18,7 @@
 #define MOUSE_SET_DEFAULTS      0xF6
 #define MOUSE_ENABLE_STREAMING  0xF4
 #define MOUSE_SET_SAMPLE_RATE   0xF3
+#define MOUSE_GET_DEVICE_ID     0xF2
 
 // Mouse state
 static mouse_state_t mouse_state = {
@@ -35,6 +36,17 @@ static int8_t mouse_packet[3];
 
 // Previous button states for click detection
 static uint8_t prev_buttons = 0;
+
+// Debug counters
+static uint32_t interrupt_count = 0;
+static uint32_t packet_count = 0;
+
+// Helper to print number via serial
+static void serial_putnum(int num) {
+    char buf[12];
+    itoa(num, buf, 10);
+    serial_puts(buf);
+}
 
 /* -------------------------------------------------------------------
  * Internal helpers
@@ -56,6 +68,24 @@ static void process_packet(void) {
     if (mouse_state.x >= VGA_WIDTH)  mouse_state.x = VGA_WIDTH - 1;
     if (mouse_state.y < 0) mouse_state.y = 0;
     if (mouse_state.y >= VGA_HEIGHT) mouse_state.y = VGA_HEIGHT - 1;
+    
+    packet_count++;
+#ifdef MOUSE_DEBUG
+    // Log packet info every 10 packets
+    if (packet_count % 10 == 0) {
+        serial_puts("\nPkt#");
+        serial_putnum(packet_count);
+        serial_puts(" dx=");
+        serial_putnum(mouse_state.dx);
+        serial_puts(" dy=");
+        serial_putnum(mouse_state.dy);
+        serial_puts(" pos=(");
+        serial_putnum(mouse_state.x);
+        serial_puts(",");
+        serial_putnum(mouse_state.y);
+        serial_puts(")\n");
+    }
+#endif
 }
 
 // Saved pixels under cursor
@@ -116,71 +146,132 @@ static uint8_t mouse_read(void) {
 // Initialize PS/2 mouse
 void mouse_init(void) {
     uint8_t status;
+    uint8_t ack;
+
+#ifdef MOUSE_DEBUG
+    serial_puts("\nMouse init starting...\n");
+#endif
 
     /* Flush any pending bytes from previous operations */
     while (inb(MOUSE_STATUS) & 1) {
         (void)inb(MOUSE_PORT);
     }
     
-    // Enable auxiliary device
+    // Enable auxiliary device (mouse port)
     mouse_wait(1);
     outb(MOUSE_CMD, MOUSE_CMD_ENABLE_AUX);
     
     // Enable interrupts
-    /* Read controller command byte, enable IRQ12 (bit1) and make sure
-       the AUX port clock is *enabled* (bit5 must be 0). */
     mouse_wait(1);
     outb(MOUSE_CMD, MOUSE_CMD_GET_COMPAQ);
     mouse_wait(0);
     status = inb(MOUSE_PORT);
-    status |= 0x02;    /* enable IRQ12 */
+#ifdef MOUSE_DEBUG
+    serial_puts("Initial compaq byte: 0x");
+    char buf[12];
+    utohex(status, buf);
+    serial_puts(buf);
+    serial_puts("\n");
+#endif
+    
+    status |= 0x02;      /* enable IRQ12 */
     status &= ~(1 << 5); /* enable aux clock */
+    
     mouse_wait(1);
     outb(MOUSE_CMD, MOUSE_CMD_SET_COMPAQ);
     mouse_wait(1);
     outb(MOUSE_PORT, status);
 
-    /* Some controllers require 0xA8 again after modifying the command
-       byte to actually open the gate for the second port. */
+    // Re-enable auxiliary device
     mouse_wait(1);
     outb(MOUSE_CMD, MOUSE_CMD_ENABLE_AUX);
     
+    // Reset mouse
+    mouse_write(0xFF);  // Reset command
+    ack = mouse_read(); // ACK
+    if (ack == 0xFA) {
+        mouse_read();   // 0xAA (self-test passed)
+        mouse_read();   // 0x00 (mouse ID)
+#ifdef MOUSE_DEBUG
+        serial_puts("Mouse reset successful\n");
+#endif
+    }
+    
     // Set defaults
     mouse_write(MOUSE_SET_DEFAULTS);
-    mouse_read();  // Acknowledge
+    ack = mouse_read();
+#ifdef MOUSE_DEBUG
+    serial_puts("Set defaults ACK: 0x");
+    utohex(ack, buf);
+    serial_puts(buf);
+    serial_puts("\n");
+#endif
     
-    // Enable streaming
-    mouse_write(MOUSE_ENABLE_STREAMING);
-    mouse_read();  // Acknowledge
-    
-    // Set sample rate
+    // Set sample rate to 100 Hz
     mouse_write(MOUSE_SET_SAMPLE_RATE);
-    mouse_read();  // Acknowledge
-    mouse_write(10);  // 10 samples/sec
-    mouse_read();  // Acknowledge
-
-    /* After changing parameters many controllers automatically clear
-     * the data-reporting flag; enable it once more to make sure the
-     * mouse starts sending movement packets. */
+    mouse_read();  // ACK
+    mouse_write(100);
+    mouse_read();  // ACK
+    
+    // Set resolution to 4 counts/mm
+    mouse_write(0xE8);  // Set resolution
+    mouse_read();       // ACK
+    mouse_write(2);     // 4 counts/mm
+    mouse_read();       // ACK
+    
+    // Enable data reporting
     mouse_write(MOUSE_ENABLE_STREAMING);
-    mouse_read();
+    ack = mouse_read();
+#ifdef MOUSE_DEBUG
+    serial_puts("Enable streaming ACK: 0x");
+    utohex(ack, buf);
+    serial_puts(buf);
+    serial_puts("\n");
+#endif
+
+    // Get device ID to verify mouse is responding
+    mouse_write(MOUSE_GET_DEVICE_ID);
+    mouse_read();  // ACK
+    uint8_t id = mouse_read();
+#ifdef MOUSE_DEBUG
+    serial_puts("Mouse ID: 0x");
+    utohex(id, buf);
+    serial_puts(buf);
+    serial_puts("\n");
+    serial_puts("Mouse init complete!\n");
+#endif
 }
 
 // Mouse interrupt handler
 void mouse_handler(void) {
     uint8_t data = inb(MOUSE_PORT);
     
-    /* Emit a '.' on COM1 every time an IRQ12 arrives so we can confirm
-       that the interrupt line is alive even when the GUI hides text
-       output. */
+    interrupt_count++;
+    
 #ifdef MOUSE_DEBUG
-    serial_putc('.');
+    if (interrupt_count <= 20) {  // Log first 20 interrupts
+        serial_puts("\nIRQ12 #");
+        serial_putnum(interrupt_count);
+        serial_puts(" data=0x");
+        char buf[12];
+        utohex(data, buf);
+        serial_puts(buf);
+        serial_puts(" cycle=");
+        serial_putnum(mouse_cycle);
+    }
 #endif
 
     switch (mouse_cycle) {
         case 0:
             mouse_packet[0] = data;
-            if (!(data & 0x08)) return; // Check bit 3 (always 1 in first packet)
+            if (!(data & 0x08)) {
+#ifdef MOUSE_DEBUG
+                serial_puts(" SYNC ERR!");
+#endif
+                // Try to resync
+                mouse_cycle = 0;
+                return;
+            }
             mouse_cycle++;
             break;
             
@@ -192,9 +283,7 @@ void mouse_handler(void) {
         case 2:
             mouse_packet[2] = data;
             mouse_cycle = 0;
-            
             process_packet();
-            
             break;
     }
 }
@@ -207,13 +296,30 @@ void mouse_handler(void) {
  * output buffer is full.
  * -------------------------------------------------------------------*/
 void mouse_poll(void) {
+    static uint32_t poll_count = 0;
+    
     while (inb(MOUSE_STATUS) & 1) {
         uint8_t data = inb(MOUSE_PORT);
+        
+        poll_count++;
+#ifdef MOUSE_DEBUG
+        if (poll_count <= 20) {  // Log first 20 polls
+            serial_puts("\nPoll #");
+            serial_putnum(poll_count);
+            serial_puts(" data=0x");
+            char buf[12];
+            utohex(data, buf);
+            serial_puts(buf);
+        }
+#endif
 
         switch (mouse_cycle) {
             case 0:
                 mouse_packet[0] = data;
-                if (!(data & 0x08)) return;  /* sync bit not set */
+                if (!(data & 0x08)) {
+                    mouse_cycle = 0;  // Reset on sync error
+                    return;
+                }
                 mouse_cycle++;
                 break;
             case 1:
