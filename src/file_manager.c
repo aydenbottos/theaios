@@ -1,3 +1,4 @@
+#include <stddef.h>
 #include "file_manager.h"
 #include "vga_graphics.h"
 #include "kheap.h"
@@ -6,6 +7,15 @@
 
 // Global file manager instance
 static file_manager_t* file_manager = NULL;
+
+// Simple strncpy implementation
+static void simple_strncpy(char* dest, const char* src, int n) {
+    int i;
+    for (i = 0; i < n - 1 && src[i] != '\0'; i++) {
+        dest[i] = src[i];
+    }
+    dest[i] = '\0';
+}
 
 // File manager window content drawing
 static void file_manager_draw_content(window_t* win) {
@@ -149,8 +159,7 @@ void file_manager_open(const char* path) {
     
     // Set initial path
     if (path) {
-        strncpy(file_manager->current_path, path, 127);
-        file_manager->current_path[127] = '\0';
+        simple_strncpy(file_manager->current_path, path, 128);
     }
     
     // Load directory
@@ -165,6 +174,23 @@ void file_manager_close(void) {
     }
 }
 
+// Callback counter for file listing
+static int fm_file_index = 0;
+
+// Callback function for fs_ls
+static void file_manager_ls_callback(const char* name, uint32_t size) {
+    if (fm_file_index >= 32) return;
+    
+    file_entry_t* entry = &file_manager->files[fm_file_index];
+    simple_strncpy(entry->name, name, 13);
+    entry->size = size;
+    // Simple heuristic: directories are typically shown with size 0 in FAT
+    entry->is_directory = (strcmp(name, ".") == 0 || strcmp(name, "..") == 0 || size == 0);
+    
+    fm_file_index++;
+    file_manager->file_count = fm_file_index;
+}
+
 // Refresh file list
 void file_manager_refresh(void) {
     if (!file_manager) return;
@@ -172,20 +198,21 @@ void file_manager_refresh(void) {
     file_manager->file_count = 0;
     file_manager->selected_index = 0;
     file_manager->scroll_offset = 0;
+    fm_file_index = 0;
     
-    // Read directory
-    fat_directory_t dir;
-    if (fat_read_directory(file_manager->current_path, &dir) == 0) {
-        // Add entries
-        for (int i = 0; i < dir.count && file_manager->file_count < 32; i++) {
-            file_entry_t* entry = &file_manager->files[file_manager->file_count];
-            strncpy(entry->name, dir.entries[i].filename, 12);
-            entry->name[12] = '\0';
-            entry->size = dir.entries[i].size;
-            entry->is_directory = (dir.entries[i].attributes & 0x10) != 0;
-            file_manager->file_count++;
-        }
+    // Since we can't change directory in the simple fs implementation,
+    // we'll just list the root directory
+    // Add . and .. entries manually
+    if (strcmp(file_manager->current_path, "/") != 0) {
+        file_entry_t* entry = &file_manager->files[fm_file_index++];
+        strcpy(entry->name, "..");
+        entry->size = 0;
+        entry->is_directory = true;
+        file_manager->file_count = fm_file_index;
     }
+    
+    // Use fs_ls to populate the file list
+    fs_ls(file_manager_ls_callback);
     
     // Sort entries (directories first)
     for (int i = 0; i < file_manager->file_count - 1; i++) {
