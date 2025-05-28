@@ -27,4 +27,7 @@ bool mouse_left_clicked(void);
 bool mouse_right_clicked(void);
 bool mouse_in_rect(int x, int y, int width, int height);
 
+/* Polling fallback (optional) */
+void mouse_poll(void);
+
 #endif // MOUSE_H

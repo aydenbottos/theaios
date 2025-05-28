@@ -1,11 +1,61 @@
 #include "vga_graphics.h"
 #include "util.h"
 
+// Helper for integer absolute value (replacement for abs)
+static int abs_int(int x) {
+    return x < 0 ? -x : x;
+}
+
 // VGA memory address for mode 13h
 static uint8_t* vga_buffer = (uint8_t*)0xA0000;
 
 // Double buffer for smoother graphics
 static uint8_t back_buffer[VGA_SIZE];
+
+/*
+ * Write a complete VGA register dump.  The layout is borrowed from the
+ * "FreeVGA" tables: one byte for the Misc Output register, followed by
+ * 5 Sequencer, 25 CRTC, 9 Graphics-controller and 21 Attribute-
+ * controller registers (61 bytes total).
+ */
+static void vga_write_regs(const uint8_t *regs) {
+    /* 1) Misc output register */
+    outb(0x3C2, *regs++);
+
+    /* 2) Sequencer */
+    for (uint8_t i = 0; i < 5; i++) {
+        outb(0x3C4, i);
+        outb(0x3C5, *regs++);
+    }
+
+    /* 3) Unlock CRTC registers by clearing bit 7 of index 0x11 */
+    outb(0x3D4, 0x11);
+    uint8_t prev = inb(0x3D5);
+    outb(0x3D5, prev & 0x7F);
+
+    /* 4) CRTC */
+    for (uint8_t i = 0; i < 25; i++) {
+        outb(0x3D4, i);
+        outb(0x3D5, *regs++);
+    }
+
+    /* 5) Graphics controller */
+    for (uint8_t i = 0; i < 9; i++) {
+        outb(0x3CE, i);
+        outb(0x3CF, *regs++);
+    }
+
+    /* 6) Attribute controller */
+    for (uint8_t i = 0; i < 21; i++) {
+        (void)inb(0x3DA);           /* reset flip-flop */
+        outb(0x3C0, i);
+        outb(0x3C0, *regs++);
+    }
+
+    /* 7) Enable video output */
+    (void)inb(0x3DA);
+    outb(0x3C0, 0x20);
+}
 
 // Basic 8x8 font (simplified, only uppercase and digits)
 static const uint8_t font8x8[][8] = {
@@ -55,24 +105,69 @@ static const uint8_t font8x8[][8] = {
 
 // Initialize VGA graphics mode
 void vga_init_graphics(void) {
-    // Set VGA mode 13h (320x200, 256 colors)
-    __asm__ volatile (
-        "mov $0x13, %%ax\n"
-        "int $0x10"
-        : : : "ax"
-    );
-    
-    // Clear the screen
+    /*
+     * We used to call the BIOS via “int 0x10” to switch to video
+     * mode 13h.  In protected mode the BIOS is long gone and vector
+     * 0x10 is reserved for the x87-FPU exception (#MF) – the call
+     * therefore crashed the kernel.  We now program the VGA hardware
+     * directly with the canonical register set for 320×200 256-colour
+     * chain-4 graphics (mode 13h).
+     */
+
+    static const uint8_t mode13h_regs[] = {
+        /* MISC */
+        0x63,
+
+        /* Sequencer */
+        0x03, 0x01, 0x0F, 0x00, 0x0E,
+
+        /* CRTC */
+        0x5F, 0x4F, 0x50, 0x82, 0x54, 0x80, 0xBF, 0x1F, 0x00, 0x41,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x9C, 0x8E, 0x8F, 0x28,
+        0x40, 0x96, 0xB9, 0xA3, 0xFF,
+
+        /* Graphics controller */
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x40, 0x05, 0x0F, 0xFF,
+
+        /* Attribute controller */
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09,
+        0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x41, 0x00, 0x0F, 0x00,
+        0x00
+    };
+
+    vga_write_regs(mode13h_regs);
+
+    /* Clear the back buffer so that the first swap shows a black
+       screen. */
     vga_clear_screen(COLOR_BLACK);
 }
 
 // Return to text mode
 void vga_return_to_text_mode(void) {
-    __asm__ volatile (
-        "mov $0x03, %%ax\n"
-        "int $0x10"
-        : : : "ax"
-    );
+    /* 80×25 16-colour text mode (BIOS mode 03) */
+
+    static const uint8_t mode03_regs[] = {
+        /* MISC */
+        0x67,
+
+        /* Sequencer */
+        0x03, 0x00, 0x03, 0x00, 0x02,
+
+        /* CRTC */
+        0x5B, 0x4F, 0x50, 0x82, 0x55, 0x81, 0xBF, 0x1F, 0x00, 0x4F,
+        0x0D, 0x0E, 0x00, 0x00, 0x00, 0x00, 0x9C, 0x0E, 0x8F, 0x28,
+        0x1F, 0x96, 0xB9, 0xA3, 0xFF,
+
+        /* Graphics controller */
+        0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x0E, 0x00, 0xFF,
+
+        /* Attribute controller */
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x14, 0x07, 0x38, 0x39,
+        0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F, 0x0C, 0x00, 0x0F, 0x08,
+        0x00
+    };
+
+    vga_write_regs(mode03_regs);
 }
 
 // Set a pixel
@@ -120,8 +215,8 @@ void vga_fill_rect(int x, int y, int width, int height, uint8_t color) {
 
 // Draw a line (Bresenham's algorithm)
 void vga_draw_line(int x0, int y0, int x1, int y1, uint8_t color) {
-    int dx = abs(x1 - x0);
-    int dy = abs(y1 - y0);
+    int dx = abs_int(x1 - x0);
+    int dy = abs_int(y1 - y0);
     int sx = x0 < x1 ? 1 : -1;
     int sy = y0 < y1 ? 1 : -1;
     int err = dx - dy;

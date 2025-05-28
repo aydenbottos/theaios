@@ -2,6 +2,8 @@
 #include "util.h"
 #include "vga_graphics.h"
 #include "irq.h"
+#define MOUSE_DEBUG 1
+#include "serial.h"
 
 // PS/2 mouse ports
 #define MOUSE_PORT   0x60
@@ -33,6 +35,28 @@ static int8_t mouse_packet[3];
 
 // Previous button states for click detection
 static uint8_t prev_buttons = 0;
+
+/* ------------------------------------------------------------------
+ * Internal helpers
+ * ------------------------------------------------------------------*/
+
+static void process_packet(void) {
+    /* Translate 3-byte PS/2 packet into our mouse_state structure. */
+    prev_buttons = mouse_state.buttons;
+    mouse_state.buttons = mouse_packet[0] & 0x07;
+
+    mouse_state.dx = (int8_t)mouse_packet[1];
+    mouse_state.dy = -(int8_t)mouse_packet[2];   /* Y is negative up */
+
+    mouse_state.x += mouse_state.dx;
+    mouse_state.y += mouse_state.dy;
+
+    /* Clamp to screen bounds */
+    if (mouse_state.x < 0) mouse_state.x = 0;
+    if (mouse_state.x >= VGA_WIDTH)  mouse_state.x = VGA_WIDTH - 1;
+    if (mouse_state.y < 0) mouse_state.y = 0;
+    if (mouse_state.y >= VGA_HEIGHT) mouse_state.y = VGA_HEIGHT - 1;
+}
 
 // Saved pixels under cursor
 static uint8_t cursor_saved[CURSOR_WIDTH * CURSOR_HEIGHT];
@@ -92,20 +116,34 @@ static uint8_t mouse_read(void) {
 // Initialize PS/2 mouse
 void mouse_init(void) {
     uint8_t status;
+
+    /* Flush any pending bytes from previous operations */
+    while (inb(MOUSE_STATUS) & 1) {
+        (void)inb(MOUSE_PORT);
+    }
     
     // Enable auxiliary device
     mouse_wait(1);
     outb(MOUSE_CMD, MOUSE_CMD_ENABLE_AUX);
     
     // Enable interrupts
+    /* Read controller command byte, enable IRQ12 (bit1) and make sure
+       the AUX port clock is *enabled* (bit5 must be 0). */
     mouse_wait(1);
     outb(MOUSE_CMD, MOUSE_CMD_GET_COMPAQ);
     mouse_wait(0);
-    status = inb(MOUSE_PORT) | 2;
+    status = inb(MOUSE_PORT);
+    status |= 0x02;   /* enable IRQ12 */
+    status &= ~(1 << 5); /* enable aux clock */
     mouse_wait(1);
     outb(MOUSE_CMD, MOUSE_CMD_SET_COMPAQ);
     mouse_wait(1);
     outb(MOUSE_PORT, status);
+
+    /* Some controllers require 0xA8 again after modifying the command
+       byte to actually open the gate for the second port. */
+    mouse_wait(1);
+    outb(MOUSE_CMD, MOUSE_CMD_ENABLE_AUX);
     
     // Set defaults
     mouse_write(MOUSE_SET_DEFAULTS);
@@ -120,12 +158,25 @@ void mouse_init(void) {
     mouse_read();  // Acknowledge
     mouse_write(10);  // 10 samples/sec
     mouse_read();  // Acknowledge
+
+    /* After changing parameters many controllers automatically clear
+     * the data-reporting flag; enable it once more to make sure the
+     * mouse starts sending movement packets. */
+    mouse_write(MOUSE_ENABLE_STREAMING);
+    mouse_read();
 }
 
 // Mouse interrupt handler
 void mouse_handler(void) {
     uint8_t data = inb(MOUSE_PORT);
     
+    /* Emit a '.' on COM1 every time an IRQ12 arrives so we can confirm
+       that the interrupt line is alive even when the GUI hides text
+       output. */
+#ifdef MOUSE_DEBUG
+    serial_putc('.');
+#endif
+
     switch (mouse_cycle) {
         case 0:
             mouse_packet[0] = data;
@@ -142,25 +193,39 @@ void mouse_handler(void) {
             mouse_packet[2] = data;
             mouse_cycle = 0;
             
-            // Update button states
-            prev_buttons = mouse_state.buttons;
-            mouse_state.buttons = mouse_packet[0] & 0x07;
-            
-            // Update movement
-            mouse_state.dx = mouse_packet[1];
-            mouse_state.dy = -mouse_packet[2]; // Invert Y
-            
-            // Update position
-            mouse_state.x += mouse_state.dx;
-            mouse_state.y += mouse_state.dy;
-            
-            // Clamp to screen bounds
-            if (mouse_state.x < 0) mouse_state.x = 0;
-            if (mouse_state.x >= VGA_WIDTH) mouse_state.x = VGA_WIDTH - 1;
-            if (mouse_state.y < 0) mouse_state.y = 0;
-            if (mouse_state.y >= VGA_HEIGHT) mouse_state.y = VGA_HEIGHT - 1;
+            process_packet();
             
             break;
+    }
+}
+
+/* ------------------------------------------------------------------
+ * Polling fallback — called from the GUI main loop when no IRQs are
+ * received (e.g. when running under a virtual machine whose PS/2 model
+ * is disabled).  We reuse the same state-machine that assembles the
+ * 3-byte packets, but driven by reads from the data port when the
+ * output buffer is full.
+ * ------------------------------------------------------------------*/
+void mouse_poll(void) {
+    while (inb(MOUSE_STATUS) & 1) {
+        uint8_t data = inb(MOUSE_PORT);
+
+        switch (mouse_cycle) {
+            case 0:
+                mouse_packet[0] = data;
+                if (!(data & 0x08)) return;  /* sync bit not set */
+                mouse_cycle++;
+                break;
+            case 1:
+                mouse_packet[1] = data;
+                mouse_cycle++;
+                break;
+            case 2:
+                mouse_packet[2] = data;
+                mouse_cycle = 0;
+                process_packet();
+                break;
+        }
     }
 }
 

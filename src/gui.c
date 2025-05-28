@@ -18,9 +18,10 @@ void gui_init(void) {
     // Switch to graphics mode
     vga_init_graphics();
     
-    // Initialize mouse with IRQ12 handler
-    mouse_init();
+    /* Install mouse interrupt handler *before* the device starts
+       sending data so that we do not lose the very first packets. */
     irq_install_handler(12, mouse_handler);
+    mouse_init();
     
     // Initialize GUI components
     window_manager_init();
@@ -42,6 +43,9 @@ void gui_main_loop(void) {
         // Get current tick
         uint32_t current_tick = pit_get_ticks();
         
+        /* Poll mouse in case IRQ12 is not firing (works both ways). */
+        mouse_poll();
+
         // Update at ~30 FPS (every 3 ticks at 100Hz)
         if (current_tick - last_update_tick >= 3) {
             last_update_tick = current_tick;

@@ -3,6 +3,7 @@
 #include "mouse.h"
 #include "util.h"
 #include "kheap.h"
+#include <stddef.h>
 
 // Window array and management
 static window_t* windows[MAX_WINDOWS];

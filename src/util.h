@@ -6,6 +6,7 @@
 void *memcpy(void *dest, const void *src, uint32_t n);
 uint32_t strlen(const char *s);
 char   *strcpy(char *dest, const char *src);
+char   *strncpy(char *dest, const char *src, uint32_t n);
 int     atoi(const char *s);
 void    itoa(int value, char *buf, int base);
 int strncmp(const char *a, const char *b, int n);

@@ -1,9 +1,13 @@
 #include "text_editor.h"
-#include "vga_graphics.h"
-#include "kheap.h"
-#include "util.h"
+
 #include "fs.h"
 #include "keyboard.h"
+#include "kheap.h"
+#include "util.h"
+#include "vga_graphics.h"
+#include "window_manager.h"
+
+#include <stddef.h>
 
 // Global text editor instance
 static text_editor_t* text_editor = NULL;
@@ -25,14 +29,44 @@ static void update_cursor_position(void) {
     }
 }
 
+// Helper to format status string
+static void format_status(char* buffer, int line, int col) {
+    char line_str[12];
+    char col_str[12];
+
+    itoa(line, line_str, 10);
+    itoa(col, col_str, 10);
+
+    strcpy(buffer, "Line ");
+    strcat(buffer, line_str);
+    strcat(buffer, ", Col ");
+    strcat(buffer, col_str);
+}
+
+// Helper to format window title string
+static void format_title(char* buffer, const char* filename) {
+    if (filename) {
+        strcpy(buffer, "Text Editor - ");
+        strcat(buffer, filename);
+        // Ensure null termination if filename is too long, strncpy not strictly needed here
+        // as title buffer is 80 and "Text Editor - " is 14. filename can be 63.
+        // Total max 14 + 63 = 77 < 80.
+    } else {
+        strcpy(buffer, "Text Editor - Untitled");
+    }
+}
+
 // Draw text editor content
 static void text_editor_draw_content(window_t* win) {
+    vga_clear_screen(COLOR_WHITE);
+    //int width = win->width - 10; // This was the previously commented out unused variable
+    int height = win->height - 20;
+    
     if (!text_editor) return;
     
     int x = win->x + 5;
     int y = win->y + TITLEBAR_HEIGHT + 5;
-    int width = win->width - 10;
-    int height = win->height - TITLEBAR_HEIGHT - 25;
+    // int width = win->width - 10; // Comment out this new unused variable
     
     // Draw status bar
     int status_y = win->y + win->height - 20;
@@ -40,7 +74,7 @@ static void text_editor_draw_content(window_t* win) {
     
     // Status text
     char status[128];
-    sprintf(status, "Line %d, Col %d", text_editor->cursor_line + 1, text_editor->cursor_col + 1);
+    format_status(status, text_editor->cursor_line + 1, text_editor->cursor_col + 1);
     vga_draw_string(win->x + 5, status_y + 6, status, COLOR_WHITE, COLOR_DARK_GRAY);
     
     if (text_editor->modified) {
@@ -154,13 +188,13 @@ void text_editor_open(const char* filename) {
     
     // Create window
     char title[80];
+    format_title(title, filename);
+
     if (filename) {
-        sprintf(title, "Text Editor - %s", filename);
         strncpy(text_editor->filename, filename, 63);
         text_editor->filename[63] = '\0';
     } else {
-        strcpy(title, "Text Editor - Untitled");
-        text_editor->filename[0] = '\0';
+        text_editor->filename[0] = '\0'; // Clears the filename for "Untitled"
     }
     
     text_editor->window = window_create(100, 50, 350, 250, title, 
@@ -173,11 +207,11 @@ void text_editor_open(const char* filename) {
     if (filename) {
         uint8_t* buffer = (uint8_t*)kmalloc(MAX_TEXT_SIZE);
         if (buffer) {
-            uint32_t size;
-            if (fat_read_file(filename, buffer, &size) == 0 && size < MAX_TEXT_SIZE) {
-                memcpy(text_editor->text, buffer, size);
-                text_editor->text_length = size;
-                text_editor->text[size] = '\0';
+            int read_bytes = fs_read(filename, buffer, MAX_TEXT_SIZE);
+            if (read_bytes >= 0 && (uint32_t)read_bytes < MAX_TEXT_SIZE) {
+                memcpy(text_editor->text, buffer, read_bytes);
+                text_editor->text_length = read_bytes;
+                text_editor->text[read_bytes] = '\0';
             }
             // kfree(buffer); // Would use if kfree existed
         }
@@ -192,8 +226,7 @@ void text_editor_open(const char* filename) {
 void text_editor_save(void) {
     if (!text_editor || !text_editor->filename[0]) return;
     
-    if (fat_write_file(text_editor->filename, (uint8_t*)text_editor->text, 
-                      text_editor->text_length) == 0) {
+    if (fs_write(text_editor->filename, (uint8_t*)text_editor->text, text_editor->text_length) == 0) {
         text_editor->modified = false;
     }
 }

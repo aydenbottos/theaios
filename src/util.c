@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include "util.h"
+#include <stddef.h>
 
 static uint16_t* const vmem = (uint16_t*)0xB8000;
 static int cursor_x = 0;
@@ -165,15 +166,14 @@ char *strrchr(const char *s, int c) {
     return (char*)last;
 }
 
-void utohex(uint32_t val, char *buf) {
-    char tmp[9];
-    int i = 0;
-    do {
-        tmp[i++] = "0123456789ABCDEF"[val & 0xF];
-        val >>= 4;
-    } while (val && i < 8);
-    while (i < 8) tmp[i++] = '0';
-    int j = 0;
-    while (i > 0) buf[j++] = tmp[--i];
-    buf[j] = '\0';
+// Added strncpy implementation
+char *strncpy(char *dest, const char *src, uint32_t n) {
+    uint32_t i;
+    for (i = 0; i < n && src[i] != '\0'; i++) {
+        dest[i] = src[i];
+    }
+    for ( ; i < n; i++) {
+        dest[i] = '\0';
+    }
+    return dest;
 }

@@ -18,6 +18,12 @@ extern kernel_main
 global _start
 _start:
     cli
+    ; initialize FPU: clear TS (bit3) and EM (bit2), set MP (bit1) and NE (bit5)
+    fninit
+    mov eax, cr0
+    and eax, 0xfffffff3
+    or eax, 0x22
+    mov cr0, eax
     call kernel_main
 .hang:  hlt
     jmp .hang
