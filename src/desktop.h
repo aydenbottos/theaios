@@ -1,6 +1,7 @@
 #ifndef DESKTOP_H
 #define DESKTOP_H
 
+#include <stdbool.h>
 #include "util.h"
 #include "window_manager.h"
 
