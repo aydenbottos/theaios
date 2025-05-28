@@ -2,6 +2,7 @@
 #define IRQ_H
 
 #include "util.h"
+#include "interrupts.h"  /* For regs_t type */
 
 /* IRQ handler function type */
 typedef void (*irq_handler_t)(void);
