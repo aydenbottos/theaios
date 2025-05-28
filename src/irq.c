@@ -1,6 +1,7 @@
 // src/irq.c
 
 #include <stdint.h>
+#include <stddef.h>
 #include "util.h"     // inb(), outb()
 #include "idt.h"      // idt_init(), idt_flush()
 #include "pit.h"      // pit_handler()
