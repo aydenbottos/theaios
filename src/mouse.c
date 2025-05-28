@@ -36,9 +36,9 @@ static int8_t mouse_packet[3];
 // Previous button states for click detection
 static uint8_t prev_buttons = 0;
 
-/* ------------------------------------------------------------------
+/* -------------------------------------------------------------------
  * Internal helpers
- * ------------------------------------------------------------------*/
+ * -------------------------------------------------------------------*/
 
 static void process_packet(void) {
     /* Translate 3-byte PS/2 packet into our mouse_state structure. */
@@ -73,10 +73,10 @@ static const uint8_t cursor_bitmap[CURSOR_HEIGHT][CURSOR_WIDTH] = {
     {1,2,2,2,2,1,0,0,0,0,0,0},
     {1,2,2,2,2,2,1,0,0,0,0,0},
     {1,2,2,2,2,2,2,1,0,0,0,0},
-    {1,2,2,2,2,2,2,2,1,0,0,0},
-    {1,2,2,2,2,1,1,1,1,1,0,0},
+    {1,2,2,2,2,1,1,1,1,0,0,0},
     {1,2,1,2,2,1,0,0,0,0,0,0},
-    {1,1,0,1,1,1,0,0,0,0,0,0}
+    {1,1,0,1,1,1,0,0,0,0,0,0},
+    {1,0,0,0,1,1,0,0,0,0,0,0}
 };
 
 // Wait for PS/2 controller
@@ -133,7 +133,7 @@ void mouse_init(void) {
     outb(MOUSE_CMD, MOUSE_CMD_GET_COMPAQ);
     mouse_wait(0);
     status = inb(MOUSE_PORT);
-    status |= 0x02;   /* enable IRQ12 */
+    status |= 0x02;    /* enable IRQ12 */
     status &= ~(1 << 5); /* enable aux clock */
     mouse_wait(1);
     outb(MOUSE_CMD, MOUSE_CMD_SET_COMPAQ);
@@ -199,13 +199,13 @@ void mouse_handler(void) {
     }
 }
 
-/* ------------------------------------------------------------------
+/* -------------------------------------------------------------------
  * Polling fallback — called from the GUI main loop when no IRQs are
  * received (e.g. when running under a virtual machine whose PS/2 model
  * is disabled).  We reuse the same state-machine that assembles the
  * 3-byte packets, but driven by reads from the data port when the
  * output buffer is full.
- * ------------------------------------------------------------------*/
+ * -------------------------------------------------------------------*/
 void mouse_poll(void) {
     while (inb(MOUSE_STATUS) & 1) {
         uint8_t data = inb(MOUSE_PORT);
@@ -251,7 +251,7 @@ void mouse_hide_cursor(void) {
                 int px = cursor_saved_x + x;
                 int py = cursor_saved_y + y;
                 if (px >= 0 && px < VGA_WIDTH && py >= 0 && py < VGA_HEIGHT) {
-                    vga_set_pixel(px, py, cursor_saved[idx]);
+                    vga_set_pixel_direct(px, py, cursor_saved[idx]);
                 }
                 idx++;
             }
@@ -271,7 +271,7 @@ void mouse_update_cursor(void) {
                 int px = cursor_saved_x + x;
                 int py = cursor_saved_y + y;
                 if (px >= 0 && px < VGA_WIDTH && py >= 0 && py < VGA_HEIGHT) {
-                    vga_set_pixel(px, py, cursor_saved[idx]);
+                    vga_set_pixel_direct(px, py, cursor_saved[idx]);
                 }
                 idx++;
             }
@@ -287,7 +287,7 @@ void mouse_update_cursor(void) {
             int px = cursor_saved_x + x;
             int py = cursor_saved_y + y;
             if (px >= 0 && px < VGA_WIDTH && py >= 0 && py < VGA_HEIGHT) {
-                cursor_saved[idx] = vga_get_pixel(px, py);
+                cursor_saved[idx] = vga_get_pixel_direct(px, py);
             }
             idx++;
         }
@@ -301,9 +301,9 @@ void mouse_update_cursor(void) {
             if (px >= 0 && px < VGA_WIDTH && py >= 0 && py < VGA_HEIGHT) {
                 uint8_t pixel = cursor_bitmap[y][x];
                 if (pixel == 1) {
-                    vga_set_pixel(px, py, COLOR_BLACK);
+                    vga_set_pixel_direct(px, py, COLOR_BLACK);
                 } else if (pixel == 2) {
-                    vga_set_pixel(px, py, COLOR_WHITE);
+                    vga_set_pixel_direct(px, py, COLOR_WHITE);
                 }
             }
         }

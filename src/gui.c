@@ -60,11 +60,12 @@ void gui_main_loop(void) {
             window_manager_update();
             window_manager_draw();
             
-            // Update mouse cursor
-            mouse_update_cursor();
-            
             // Swap buffers
             vga_swap_buffers();
+            
+            // Update mouse cursor AFTER buffer swap
+            // This draws directly to VGA memory, not the back buffer
+            mouse_update_cursor();
             
             // Handle mouse events
             mouse_state_t* mouse = mouse_get_state();
