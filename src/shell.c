@@ -82,7 +82,7 @@ static void prompt(void) {
     itoa(s, buf, 10);
     puts("[");
     puts(buf);
-    puts(s"] myos> ");
+    puts("] myos> ");
 }
 
 static void execute(void) {
@@ -304,7 +304,7 @@ static void execute(void) {
         puts("TID   EIP      ESP\n");
         for (int i = 0; i < task_count; i++) {
             char num[4]; itoa(i, num, 10);
-            puts(num); puts("   0x");
+            puts(num); puts("  0x");
             char hex[9]; utohex(tasks[i].entry_point, hex); puts(hex);
             puts("  0x"); utohex(tasks[i].esp, hex); puts(hex);
             if (i == current_task) puts("  *\n"); else putc('\n',7);
