@@ -1,7 +1,15 @@
 #include <stdint.h>
+#include <stdbool.h>
 #include "util.h"
 #include "interrupts.h"
 #include "shell.h"
+#include "gui.h"
+
+// Circular buffer for keyboard input
+#define KEYBOARD_BUFFER_SIZE 256
+static char keyboard_buffer[KEYBOARD_BUFFER_SIZE];
+static uint32_t buffer_read_index = 0;
+static uint32_t buffer_write_index = 0;
 
 /* PS/2 Set‑1 scancodes → ASCII (normal & shifted) */
 static const char normal_map[128] = {
@@ -38,6 +46,17 @@ static const char shift_map[128] = {
 
 static int shift_down = 0;
 
+// Add character to keyboard buffer
+static void keyboard_buffer_add(char c) {
+    uint32_t next_write_index = (buffer_write_index + 1) % KEYBOARD_BUFFER_SIZE;
+    
+    // Don't overflow the buffer
+    if (next_write_index != buffer_read_index) {
+        keyboard_buffer[buffer_write_index] = c;
+        buffer_write_index = next_write_index;
+    }
+}
+
 void keyboard_handler(regs_t* regs) {
     uint8_t sc = inb(0x60);
 
@@ -56,7 +75,13 @@ void keyboard_handler(regs_t* regs) {
     // Lookup in appropriate map
     char c = shift_down ? shift_map[sc] : normal_map[sc];
     if (!c) return;
-    shell_feed(c);
+    
+    // If GUI is active, add to buffer; otherwise feed to shell
+    if (gui_is_active()) {
+        keyboard_buffer_add(c);
+    } else {
+        shell_feed(c);
+    }
 }
 
 void keyboard_init(void) {
@@ -67,6 +92,22 @@ void keyboard_init(void) {
 
     // Flush stale data
     (void)inb(0x60);
+    
+    // Initialize buffer indices
+    buffer_read_index = 0;
+    buffer_write_index = 0;
+}
 
-    // (No need to re‑unmask here because irq_install left IRQ1 unmasked)
+bool keyboard_has_input(void) {
+    return buffer_read_index != buffer_write_index;
+}
+
+char keyboard_get_char(void) {
+    if (!keyboard_has_input()) {
+        return 0;  // No input available
+    }
+    
+    char c = keyboard_buffer[buffer_read_index];
+    buffer_read_index = (buffer_read_index + 1) % KEYBOARD_BUFFER_SIZE;
+    return c;
 }
