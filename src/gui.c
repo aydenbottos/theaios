@@ -8,10 +8,15 @@
 #include "keyboard.h"
 #include "pit.h"
 #include "irq.h"
+#include "serial.h"
 
 // GUI state
 static bool gui_active = false;
 static uint32_t last_update_tick = 0;
+
+// Mouse simulation for testing
+static int simulated_x = VGA_WIDTH / 2;
+static int simulated_y = VGA_HEIGHT / 2;
 
 // Initialize GUI system
 void gui_init(void) {
@@ -38,6 +43,7 @@ void gui_init(void) {
 // Main GUI event loop
 void gui_main_loop(void) {
     uint32_t frame_count = 0;
+    uint32_t poll_status_timer = 0;
     
     while (gui_active) {
         // Get current tick
@@ -45,6 +51,20 @@ void gui_main_loop(void) {
         
         /* Poll mouse in case IRQ12 is not firing (works both ways). */
         mouse_poll();
+        
+        // TEMPORARY: If no mouse data after 100 ticks, use keyboard simulation
+        poll_status_timer++;
+        if (poll_status_timer > 100) {
+            mouse_state_t* mouse = mouse_get_state();
+            if (mouse->x == VGA_WIDTH/2 && mouse->y == VGA_HEIGHT/2) {
+                // No mouse movement detected, enable keyboard control
+                static bool warned = false;
+                if (!warned) {
+                    serial_puts("\nWARNING: No mouse data detected. Use arrow keys to move cursor.\n");
+                    warned = true;
+                }
+            }
+        }
 
         // Update at ~30 FPS (every 3 ticks at 100Hz)
         if (current_tick - last_update_tick >= 3) {
@@ -80,6 +100,41 @@ void gui_main_loop(void) {
         // Handle keyboard input
         if (keyboard_has_input()) {
             char key = keyboard_get_char();
+            
+            // TEMPORARY: Arrow keys move cursor if no mouse data
+            mouse_state_t* mouse = mouse_get_state();
+            static bool using_keyboard_mouse = false;
+            
+            // Check if we should use keyboard control
+            if (poll_status_timer > 100 && mouse->x == VGA_WIDTH/2 && mouse->y == VGA_HEIGHT/2) {
+                using_keyboard_mouse = true;
+            }
+            
+            if (using_keyboard_mouse) {
+                // Arrow key codes (scan codes)
+                if (key == 72) { // Up arrow
+                    simulated_y -= 5;
+                    if (simulated_y < 0) simulated_y = 0;
+                    mouse->y = simulated_y;
+                } else if (key == 80) { // Down arrow
+                    simulated_y += 5;
+                    if (simulated_y >= VGA_HEIGHT) simulated_y = VGA_HEIGHT - 1;
+                    mouse->y = simulated_y;
+                } else if (key == 75) { // Left arrow
+                    simulated_x -= 5;
+                    if (simulated_x < 0) simulated_x = 0;
+                    mouse->x = simulated_x;
+                } else if (key == 77) { // Right arrow
+                    simulated_x += 5;
+                    if (simulated_x >= VGA_WIDTH) simulated_x = VGA_WIDTH - 1;
+                    mouse->x = simulated_x;
+                } else if (key == ' ') { // Space = click
+                    mouse->buttons = 1;
+                } else {
+                    mouse->buttons = 0;
+                }
+            }
+            
             gui_handle_keyboard(key);
         }
         
