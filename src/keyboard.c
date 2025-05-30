@@ -1,3 +1,4 @@
+#include "keyboard.h"
 #include <stdint.h>
 #include <stdbool.h>
 #include "util.h"
@@ -10,6 +11,11 @@
 static char keyboard_buffer[KEYBOARD_BUFFER_SIZE];
 static uint32_t buffer_read_index = 0;
 static uint32_t buffer_write_index = 0;
+
+// Buffer for raw scan codes (for special keys)
+static uint8_t scancode_buffer[KEYBOARD_BUFFER_SIZE];
+static uint32_t scancode_read_index = 0;
+static uint32_t scancode_write_index = 0;
 
 /* PS/2 Set‑1 scancodes → ASCII (normal & shifted) */
 static const char normal_map[128] = {
@@ -44,6 +50,13 @@ static const char shift_map[128] = {
 
 };
 
+// Special scan codes
+#define SCANCODE_UP    0x48
+#define SCANCODE_DOWN  0x50
+#define SCANCODE_LEFT  0x4B
+#define SCANCODE_RIGHT 0x4D
+#define SCANCODE_SPACE 0x39
+
 static int shift_down = 0;
 
 // Add character to keyboard buffer
@@ -54,6 +67,16 @@ static void keyboard_buffer_add(char c) {
     if (next_write_index != buffer_read_index) {
         keyboard_buffer[buffer_write_index] = c;
         buffer_write_index = next_write_index;
+    }
+}
+
+// Add scancode to scancode buffer
+static void scancode_buffer_add(uint8_t sc) {
+    uint32_t next_write_index = (scancode_write_index + 1) % KEYBOARD_BUFFER_SIZE;
+    
+    if (next_write_index != scancode_read_index) {
+        scancode_buffer[scancode_write_index] = sc;
+        scancode_write_index = next_write_index;
     }
 }
 
@@ -72,6 +95,9 @@ void keyboard_handler(regs_t* regs) {
         return;
     }
 
+    // Always add scancode to scancode buffer
+    scancode_buffer_add(sc);
+    
     // Lookup in appropriate map
     char c = shift_down ? shift_map[sc] : normal_map[sc];
     if (!c) return;
@@ -96,6 +122,8 @@ void keyboard_init(void) {
     // Initialize buffer indices
     buffer_read_index = 0;
     buffer_write_index = 0;
+    scancode_read_index = 0;
+    scancode_write_index = 0;
 }
 
 bool keyboard_has_input(void) {
@@ -110,4 +138,20 @@ char keyboard_get_char(void) {
     char c = keyboard_buffer[buffer_read_index];
     buffer_read_index = (buffer_read_index + 1) % KEYBOARD_BUFFER_SIZE;
     return c;
+}
+
+// New function to check for scancode input
+bool keyboard_has_scancode(void) {
+    return scancode_read_index != scancode_write_index;
+}
+
+// New function to get raw scancode
+uint8_t keyboard_get_scancode(void) {
+    if (!keyboard_has_scancode()) {
+        return 0;
+    }
+    
+    uint8_t sc = scancode_buffer[scancode_read_index];
+    scancode_read_index = (scancode_read_index + 1) % KEYBOARD_BUFFER_SIZE;
+    return sc;
 }
