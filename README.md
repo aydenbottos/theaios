@@ -77,9 +77,4 @@ themselves quickly.
 
 ## Immediate TODO / ideas
 
-1. More syscalls (open/read/write/close) to let user programs interact
-   with FS without shell assistance.
-2. Pre-emptive multitasking (time-slice + task status fields).
-3. Switch heap & task structs to dynamic allocations.
-4. VGA cursor HW update and scrolling optimisation.
-5. Build pipeline improvements: CI, unit tests that run under QEMU.
+1. Fix cursor in GUI
